@@ -48,7 +48,7 @@ public class Earthquake extends Activity {
 		setContentView(R.layout.activity_main);
 		
 		StrictMode.ThreadPolicy policy = new StrictMode.ThreadPolicy.Builder().permitAll().build();
-		StrictMode.setThreadPolicy(policy); //For API
+		StrictMode.setThreadPolicy(policy);
 		
 		earthquakeListView=(ListView)this.findViewById(R.id.earthquakeListView);
 		
@@ -147,134 +147,16 @@ public class Earthquake extends Activity {
 		}
 	}
 	
-	private void refreshEarthquakes(){
-		// Get the XML
-		URL url;
-		try{
-			String quakeFeed = getString(R.string.quake_feed);
-			url = new URL(quakeFeed);
-			
-			URLConnection connection;
-			connection = url.openConnection();
-			
-			HttpURLConnection httpConnection = (HttpURLConnection)connection;
-			int responseCode = httpConnection.getResponseCode();
-			
-			if(responseCode == HttpURLConnection.HTTP_OK){
-				InputStream in = httpConnection.getInputStream();
-				
-				DocumentBuilderFactory dbf;
-				dbf = DocumentBuilderFactory.newInstance();
-				DocumentBuilder db = dbf.newDocumentBuilder();
-				
-				// Parse the earthquake feed
-				Document dom = db.parse(in);
-				Element docEle = dom.getDocumentElement();
-				
-				// Clear the old earthquakes
-				earthquakes.clear();
-				loadQuakeFromProvider();
-				
-				// Get a list of each earthquake entry
-				NodeList nl = docEle.getElementsByTagName("entry");
-				if (nl != null && nl.getLength() > 0){
-					for (int i = 0; i < nl.getLength(); i++){
-						Element entry = (Element)nl.item(i);
-						Element title = (Element)entry.getElementsByTagName("title").item(0);
-						Element g = (Element)entry.getElementsByTagName("georss:point").item(0);
-						Element when = (Element)entry.getElementsByTagName("updated").item(0);
-						Element link = (Element)entry.getElementsByTagName("link").item(0);
-						
-						String details = title.getFirstChild().getNodeValue();
-						String hostname = "http://earthquake.usgs.gov";
-						String linkString = hostname + link.getAttribute("href");
-						
-						String point = g.getFirstChild().getNodeValue();
-						String dt = when.getFirstChild().getNodeValue();
-						SimpleDateFormat sdf;
-						sdf = new SimpleDateFormat("yyyy-MM-dd'T'hh:mm:ss'Z'");
-						Date qdate = new GregorianCalendar(0,0,0).getTime();
-						
-						try{
-							qdate = sdf.parse(dt);
-						}
-						catch (java.text.ParseException e){
-							e.printStackTrace();
-						} 
-						
-						String[] location = point.split(" ");
-						Location l = new Location("dummyGPS");
-						l.setLatitude(Double.parseDouble(location[0]));
-						l.setLongitude(Double.parseDouble(location[1]));
-						
-						String magnitudeString = details.split(" ")[1];
-						int end = magnitudeString.length() - 1;
-						double magnitude;
-						magnitude = Double.parseDouble(magnitudeString.substring(0, end));
-						details = details.split(",")[1].trim();
-						
-						Quake quake = new Quake(qdate,details,l,magnitude,linkString);
-						
-						// Process a newly found earthquake
-						addNewQuake(quake);
-					}
-				}				
-			}
-		}
-		catch(MalformedURLException e){
-			e.printStackTrace();
-		}
-		catch(IOException e){
-			e.printStackTrace();
-		}
-		catch(ParserConfigurationException e){
-			e.printStackTrace();
-		}
-		catch(SAXException e){
-			e.printStackTrace();
-		}
-		finally{}
-	}
 	
-	private void addNewQuake(Quake _quake){
-		ContentResolver cr = getContentResolver();
-		// Construct a where clause to make sure we don't already have this earthquake in the provider
-		String w = EarthquakeProvider.KEY_DATE + " = " + _quake.getDate().getTime();
-		
-		// If the earthquake is new, insert it into the provider
-		Cursor c = cr.query(EarthquakeProvider.CONTENT_URI, null, w, null, null);
-		int dbCount = c.getCount();
-		c.close();
-		
-		if (dbCount == 0){ //Chapter 6 dbCount > 0
-			ContentValues values = new ContentValues();
-			
-			values.put(EarthquakeProvider.KEY_DATE, _quake.getDate().getTime());
-			values.put(EarthquakeProvider.KEY_DETAILS, _quake.getDetails());
-			
-			double lat = _quake.getLocation().getLatitude();
-			double lng = _quake.getLocation().getLongitude();
-			values.put(EarthquakeProvider.KEY_LOCATION_LAT,lat);
-			values.put(EarthquakeProvider.KEY_LOCATION_LNG, lng);
-			values.put(EarthquakeProvider.KEY_LINK, _quake.getLink());
-			values.put(EarthquakeProvider.KEY_MAGNITUDE, _quake.getMagnitude());
-			
-			cr.insert(EarthquakeProvider.CONTENT_URI, values);
-			
-			//earthquakes.add(_quake);Chapter 6
-			
-			addQuakeToArray(_quake);
-		}
-	}
 	
 	private void addQuakeToArray (Quake _quake){
 		if (_quake.getMagnitude() > minimumMagnitude){
 			// Add the new quake to our list of earthquakes
 			earthquakes.add(_quake);
-			
-			// Notify the array adapter of a change
-			aa.notifyDataSetChanged();
 		}
+		
+		// Notify the array adapter of a change
+		aa.notifyDataSetChanged();
 	}
 	
 	private void updateFromPreferences(){
@@ -338,6 +220,42 @@ public class Earthquake extends Activity {
 			while(c.moveToNext());
 		}
 		c.close();
+	}
+	
+	private void refreshEarthquakes(){
+		startService(new Intent(this,EarthquakeService.class));
+	}
+	
+	public class EarthquakeReceiver extends BroadcastReceiver{
+		
+		
+		
+		@Override
+		public void onReceive(Context context, Intent intent) {
+			loadQuakeFromProvider();
+		}
+		
+		
+
+	}
+	
+	EarthquakeReceiver receiver;
+	
+	@Override
+	public void onResume(){
+		IntentFilter filter;
+		filter = new IntentFilter(EarthquakeService.NEW_EARTHQUAKE_FOUND);
+		receiver = new EarthquakeReceiver();
+		registerReceiver(receiver,filter);
+		
+		loadQuakeFromProvider();
+		super.onResume();
+	}
+	
+	@Override
+	public void onPause(){
+		unregisterReceiver(receiver);
+		super.onPause();
 	}
 	
 }

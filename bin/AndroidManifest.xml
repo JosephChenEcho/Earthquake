@@ -32,6 +32,7 @@
         <provider 
             android:name = "com.example.earthquake.EarthquakeProvider"
             android:authorities="com.example.provider.earthquake" />
+        <service android:enabled="true" android:name = "com.example.earthquake.EarthquakeService"></service>
         
     </application>
     <uses-permission xmlns:android="http://schemas.android.com/apk/res/android"
